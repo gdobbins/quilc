@@ -163,11 +163,9 @@
 ;;     X t, Z c, RY(pi/2) t, ISWAP c t, RY(r) c, ISWAP c t, RY(-pi/2) t
 ;;          == UCRZ(r,-r) (c) t 
 ;;
-(defun ucr-compiler (instr &key (target ':cz))
+(define-compiler ucr-compiler-to-cz ((instr
+                                      :where (typep instr 'ucr-application)))
   "Compiles a UCR into UCRs of one smaller order (or, in the base case, into plain rolls)."
-  ;; if this isn't a UCR, skip it.
-  (unless (typep instr 'ucr-application)
-    (give-up-compilation))
   (let* ((roll-type (ucr-application-roll-type instr))
          (chirality (ucr-application-chirality instr))
          (parameters (application-parameters instr))
@@ -176,29 +174,21 @@
          (a (first arguments))
          (b (second arguments))
          (rest (rest arguments))
-         (restrest (rest rest))
-         (pi/2 (constant (/ pi 2)))
-         (-pi/2 (constant (/ pi -2))))
+         (restrest (rest rest)))
     (labels ((ucr* (chirality roll params args)
                (make-instance 'ucr-application
                               :chirality chirality
                               :roll-type roll
                               :parameters (alexandria:ensure-list params)
                               :arguments (alexandria:ensure-list args)))
-             (ucr (roll params args)
-               (ucr* nil roll params args))
              (chiroll (chirality params)
                (ucr* chirality roll-type params (cons a restrest)))
-             (iswap ()
-               (build-gate "ISWAP" () a b))
              (cnot ()
-               (build-gate "CNOT" () b a))
-             (build-gates (gate-data)
-               (mapcar (lambda (arg-list) (apply #'build-gate arg-list)) gate-data)))
+               (build-gate "CNOT" () b a)))
       ;; if all the UCR parameters are zero, return a NOP (or the CNOT we were meant to cancel with)
       (when (every (lambda (param) (double= 0d0 (constant-value param)))
                    parameters)
-        (return-from ucr-compiler
+        (return-from ucr-compiler-to-cz
           (if (null chirality)
               (list (make-instance 'no-operation))
               (list (cnot)))))
@@ -207,7 +197,7 @@
                   :always (double= (constant-value pa)
                                    (constant-value param)))
         (let ((roll (build-gate roll-type (list pa) a)))
-          (return-from ucr-compiler
+          (return-from ucr-compiler-to-cz
             (ecase chirality
               (:up
                (list (cnot) roll))
@@ -240,8 +230,7 @@
         ;; we're ready to output the list of compiled instructions. we do case
         ;; analysis to decide whether we need to emit smaller UCRs or just rolls.
         (cond
-          ((and (member target '(:cnot :cz))
-                (= 1 (length averages)))
+          ((= 1 (length averages))
            (ecase chirality
              (:down
               ;; in this case, we just emit rolls, encoded with CNOTs
@@ -253,7 +242,7 @@
               ;; in this case, we just emit rolls, encoded with CNOTs
               (list avgroll (cnot) diffroll (cnot)))))
           ;; otherwise, we need to emit shorter UCRs encoded with CNOTs
-          ((member target '(:cnot :cz))
+          (t
            (ecase chirality
              (:down
               (list (chiroll ':down averages) (cnot) (chiroll ':up differences)))
@@ -261,11 +250,83 @@
               (list (chiroll ':down differences) (cnot) (chiroll ':up averages)))
              ((nil)
               (list
-               (chiroll ':down averages) (cnot) (chiroll ':up differences) (cnot)))))
+               (chiroll ':down averages) (cnot) (chiroll ':up differences) (cnot))))))))))
+
+
+(define-compiler ucr-compiler-to-iswap ((instr
+                                         :where (typep instr 'ucr-application)))
+  "Compiles a UCR into UCRs of one smaller order (or, in the base case, into plain rolls)."
+  (let* ((roll-type (ucr-application-roll-type instr))
+         (chirality (ucr-application-chirality instr))
+         (parameters (application-parameters instr))
+         (pa (first parameters))
+         (arguments (application-arguments instr))
+         (a (first arguments))
+         (b (second arguments))
+         (rest (rest arguments))
+         (restrest (rest rest))
+         (pi/2 (constant (/ pi 2)))
+         (-pi/2 (constant (/ pi -2))))
+    (labels ((ucr* (chirality roll params args)
+               (make-instance 'ucr-application
+                              :chirality chirality
+                              :roll-type roll
+                              :parameters (alexandria:ensure-list params)
+                              :arguments (alexandria:ensure-list args)))
+             (ucr (roll params args)
+               (ucr* nil roll params args))
+             (iswap ()
+               (build-gate "ISWAP" () a b))
+             (cnot ()
+               (build-gate "CNOT" () b a))
+             (build-gates (gate-data)
+               (mapcar (lambda (arg-list) (apply #'build-gate arg-list)) gate-data)))
+      ;; if all the UCR parameters are zero, return a NOP (or the CNOT we were meant to cancel with)
+      (when (every (lambda (param) (double= 0d0 (constant-value param)))
+                   parameters)
+        (return-from ucr-compiler-to-iswap
+          (if (null chirality)
+              (list (make-instance 'no-operation))
+              (list (cnot)))))
+      ;; if all the UCR parameters are the same, return an uncontrolled roll
+      (when (loop :for param :in parameters
+                  :always (double= (constant-value pa)
+                                   (constant-value param)))
+        (let ((roll (build-gate roll-type (list pa) a)))
+          (return-from ucr-compiler-to-iswap
+            (ecase chirality
+              (:up
+               (list (cnot) roll))
+              (:down
+               (list roll (cnot)))
+              ((nil)
+               (list roll))))))
+      (let* ((high-order-params
+               (subseq parameters
+                       0 (/ (length parameters) 2)))
+             (low-order-params
+               (subseq parameters
+                       (/ (length parameters) 2)))
+             (averages
+               (mapcar (lambda (x y) (constant
+                                      (/ (+ (constant-value x)
+                                            (constant-value y))
+                                         2)))
+                       high-order-params
+                       low-order-params))
+             (differences
+               (mapcar (lambda (x y) (constant
+                                      (/ (- (constant-value x)
+                                            (constant-value y))
+                                         2)))
+                       high-order-params
+                       low-order-params)))
+        ;; we're ready to output the list of compiled instructions. we do case
+        ;; analysis to decide whether we need to emit smaller UCRs or just rolls.
+        (cond
           ;; these next two are also just rolls, this time with ISWAPs.
           ;; the emitted code is different for RY and RZ, so we have to do case work.
-          ((and (eql target ':iswap)
-                (= 1 (length averages))
+          ((and (= 1 (length averages))
                 (string= "RY" roll-type))
            (build-gates `(("RY"    ,averages    ,a)
                           ("Z"     ()           ,b)
@@ -275,8 +336,7 @@
                           ("RY"    ,differences ,b)
                           ("ISWAP" ()           ,a ,b)
                           ("RZ"    (,-pi/2)     ,a))))
-          ((and (eql target ':iswap)
-                (= 1 (length averages))
+          ((and (= 1 (length averages))
                 (string= "RZ" roll-type))
            (build-gates `(("RZ"    ,averages    ,a)
                           ("X"     ()           ,a)
@@ -287,8 +347,7 @@
                           ("ISWAP" ()           ,a ,b)
                           ("RY"    (,pi/2)      ,a))))
           ;; also shorter UCRs, this time with ISWAPs.
-          ((and (eql target ':iswap)
-                (string= "RY" roll-type))
+          ((string= "RY" roll-type)
            (list
             (ucr "RY" averages (cons a restrest))
             (build-gate "Z" nil b)
@@ -298,8 +357,7 @@
             (ucr "RY" differences rest)
             (iswap)
             (build-gate "RZ" (list -pi/2) a)))
-          ((and (eql target ':iswap)
-                (string= "RZ" roll-type))
+          ((string= "RZ" roll-type)
            (list
             (ucr "RZ" averages (cons a restrest))
             (build-gate "X" nil a)
