@@ -269,7 +269,7 @@
              (magicl:conjugate-transpose d) db)))
     ;; it could be the case that b has negative determinant. if that's the case, we'll
     ;; swap two of its columns that live in the same eigenspace.
-    (when (double~ -1d0 (magicl:det b))
+    (when (minusp (realpart (magicl:det b)))
       (setf d (magicl:multiply-complex-matrices
                d
                (magicl:diag 4 4 (list -1 1 1 1))))
@@ -664,7 +664,7 @@ Additionally, if PREDICATE evaluates to false and *ENABLE-APPROXIMATE-COMPILATIO
    (build-gate "PISWAP" (list (aref array 3))     q1 q0)))
 
 (define-canonical-circuit-approximation nearest-CZ-circuit-of-depth-2
-    ((instr ("CAN" (alpha beta _) q1 q0)))    
+    ((instr ("CAN" (alpha beta 0d0) q1 q0)))    
   (list (build-gate "CZ" () q1 q0)
         (build-gate "RY" (list alpha) q1)
         (build-gate "RY" (list beta) q0)
@@ -720,10 +720,13 @@ NOTE: This routine degenerates to an optimal 2Q compiler when *ENABLE-APPROXIMAT
                                                  center-circuit
                                                  (list right1 right2)))
                      (m (make-matrix-from-quil sandwiched-circuit
-                                               :relabeling `((,q1 . 1) (,q0 . 0))))
-                     (fidelity (trace-distance (gate-matrix instr) m)))
-                (push (cons (* circuit-cost fidelity) sandwiched-circuit)
-                      candidate-pairs))
+                                               :relabeling `((,q1 . 1) (,q0 . 0)))))
+                (let ((infidelity (fidelity-coord-distance
+                                   (mapcar #'constant-value (application-parameters can))
+                                   (get-canonical-coords-from-diagonal
+                                    (nth-value 1 (orthogonal-decomposition m))))))
+                  (push (cons (* circuit-cost (- 1 infidelity)) sandwiched-circuit)
+                        candidate-pairs)))
             (compiler-does-not-apply () nil))))
       
       ;; now vomit the results
