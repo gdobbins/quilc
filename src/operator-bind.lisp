@@ -93,7 +93,7 @@
    (%function
     :initarg :function
     :reader compiler-%function
-    :documentation "A funcallable that does the compilation. Signature (compressor-context &rest instructions) -> instructions."))
+    :documentation "A funcallable that does the compilation. Signature (compilation-context &rest instructions) -> instructions."))
   (:metaclass closer-mop:funcallable-standard-class))
 
 (defmethod initialize-instance :after ((c compiler) &key)
@@ -447,7 +447,7 @@
                     (:chip-specification
                      `(progn
                         (unless context (give-up-compilation))
-                        (let ((,val (compressor-context-chip-specification context)))
+                        (let ((,val (compilation-context-chip-specification context)))
                           (unless ,val (give-up-compilation))
                           ,body)))))
         :finally (return body)))
