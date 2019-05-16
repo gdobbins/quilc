@@ -364,39 +364,32 @@ other's."
        (let ((translation-results (apply-translation-compilers (first instrs)
                                                                chip-specification
                                                                obj)))
-         ;; if we managed a translation, use these instructions instead.
-         ;; otherwise, throw an error: we failed to perform translation.
-         (cond
-           (translation-results
-            (when (and *compress-carefully*
-                       (not *enable-approximate-compilation*)
-                       (notany (lambda (instr) (typep instr 'state-prep-application))
-                               instrs))
-              (let* ((reassignment
-                       ;; the actual reassignment we use is unimportant. this is
-                       ;; more along the lines of COMPRESS-QUBITs, so that our
-                       ;; matrices don't take up quite so much space.
-                       (standard-qubit-relabeler (union (qubits-in-instr-list instrs)
-                                                        (qubits-in-instr-list translation-results))))
-                     (ref-mat (make-matrix-from-quil (list (first instrs))
-                                                     :relabeling reassignment))
-                     (mat (make-matrix-from-quil translation-results
-                                                 :relabeling reassignment))
-                     (kron-size (max (ilog2 (magicl:matrix-rows ref-mat))
-                                     (ilog2 (magicl:matrix-rows mat))))
-                     (kroned-mat (kron-matrix-up mat kron-size))
-                     (kroned-ref-mat (kron-matrix-up ref-mat kron-size)))
-                (assert
-                 (matrix-equality
-                  kroned-ref-mat
-                  (scale-out-matrix-phases kroned-mat kroned-ref-mat)))))
-            (expand-to-native-instructions (append translation-results
-                                                   (rest instrs))
-                                           chip-specification
-                                           output-string))
-           (t
-            (error "Failed to expand ~a into native instructions."
-                   (print-instruction (first instrs) nil)))))))))
+         (when (and *compress-carefully*
+                    (not *enable-approximate-compilation*)
+                    (notany (lambda (instr) (typep instr 'state-prep-application))
+                            instrs))
+           (let* ((reassignment
+                    ;; the actual reassignment we use is unimportant. this is
+                    ;; more along the lines of COMPRESS-QUBITs, so that our
+                    ;; matrices don't take up quite so much space.
+                    (standard-qubit-relabeler (union (qubits-in-instr-list instrs)
+                                                     (qubits-in-instr-list translation-results))))
+                  (ref-mat (make-matrix-from-quil (list (first instrs))
+                                                  :relabeling reassignment))
+                  (mat (make-matrix-from-quil translation-results
+                                              :relabeling reassignment))
+                  (kron-size (max (ilog2 (magicl:matrix-rows ref-mat))
+                                  (ilog2 (magicl:matrix-rows mat))))
+                  (kroned-mat (kron-matrix-up mat kron-size))
+                  (kroned-ref-mat (kron-matrix-up ref-mat kron-size)))
+             (assert
+              (matrix-equality
+               kroned-ref-mat
+               (scale-out-matrix-phases kroned-mat kroned-ref-mat)))))
+         (expand-to-native-instructions (append translation-results
+                                                (rest instrs))
+                                        chip-specification
+                                        output-string))))))
 
 
 (defun decompile-instructions-in-context (instructions chip-specification context)
