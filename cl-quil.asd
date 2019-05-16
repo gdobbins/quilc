@@ -68,6 +68,7 @@
                (:module "compilers"
                 :serial t
                 :components ((:file "ucr-explode")
+                             #+ignore
                              (:file "cs-compile")
                              (:file "euler-compile")
                              (:file "qs-compile")
